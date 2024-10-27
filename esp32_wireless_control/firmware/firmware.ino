@@ -8,7 +8,7 @@
 #include "strings.h"
 
 // try to update every time there is breaking change
-const int firmware_version = 3;
+const int firmware_version = 4;
 
 // Set your Wi-Fi credentials
 const byte DNS_PORT = 53;
@@ -44,7 +44,9 @@ unsigned long old_millis = 0, blink_millis = 0;
 uint64_t exposure_delay = 0;
 
 //state variables
-bool s_slew_active = false, s_tracking_active = false, s_capturing = false;  //change sidereal state to false if you want tracker to be OFF on power-up
+bool s_slew_active = false, s_tracking_active = true, s_capturing = false;  //change sidereal state to false if you want tracker to be OFF on power-up
+bool disable_tracking = false;
+int exposures_taken = 0;
 enum photo_control_state { ACTIVE,
                            DELAY,
                            DITHER,
@@ -75,12 +77,17 @@ void IRAM_ATTR timer_interval_ISR() {
   //intervalometer ISR
   switch (photo_control_status) {
     case ACTIVE:
-      if (exposure_count == 0) {
+      if (exposure_count - 1 == exposures_taken) {
         // no more images to capture, stop
         disableIntervalometer();
         exposure_count = 0;
         exposure_duration = 0;
         s_capturing = false;
+        photo_control_status = INACTIVE;
+
+        if (disable_tracking) {
+          handleOff();
+        }
       } else if (exposure_count % 3 == 0 && dither_enabled) {
         // user has active dithering and this is %3 image, stop capturing and run dither routine
         photo_control_status = DITHER;
@@ -91,8 +98,8 @@ void IRAM_ATTR timer_interval_ISR() {
         timerWrite(timer_interval, exposure_delay);
         stopCapture();
         photo_control_status = DELAY;
+        exposures_taken++;
       }
-      exposure_count--;
       break;
     case DELAY:
       timerWrite(timer_interval, 0);
@@ -169,6 +176,9 @@ void handleStartCapture() {
     dither_enabled = server.arg(DITHER_ENABLED).toInt();
     focal_length = server.arg(FOCAL_LENGTH).toInt();
     pixel_size = server.arg(PIXEL_SIZE).toInt();
+    disable_tracking = server.arg(DISABLE_TRACKING_ON_FINISH).toInt();
+
+    exposures_taken = 0;
 
     if ((exposure_duration == 0 || exposure_count == 0)) {
       server.send(200, MIME_TYPE_TEXT, INVALID_EXPOSURE_VALUES);
@@ -213,8 +223,13 @@ void handleAbortCapture() {
 void handleStatusRequest() {
   if (photo_control_status != INACTIVE) {
     char status[60];
-    sprintf(status, CAPTURES_REMAINING, exposure_count);
+    sprintf(status, CAPTURES_REMAINING, exposure_count - exposures_taken);
     server.send(200, MIME_TYPE_TEXT, status);
+    return;
+  }
+
+  if (!s_tracking_active && photo_control_status == INACTIVE) {
+    server.send(200, MIME_TYPE_TEXT, IDLE);
     return;
   }
 

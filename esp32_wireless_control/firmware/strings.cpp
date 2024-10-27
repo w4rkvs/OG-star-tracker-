@@ -3,6 +3,7 @@
 
 const char* TRACKING_ON = "Tracking ON";
 const char* TRACKING_OFF = "Tracking OFF";
+const char* IDLE = "Idle";
 const char* SPEED = "speed";
 const char* TRACKING_SPEED = "trackingSpeed";
 const char* DIRECTION = "direction";
@@ -11,6 +12,7 @@ const char* EXPOSURE = "exposure";
 const char* NUM_EXPOSURES = "numExposures";
 const char* DITHER_ENABLED = "ditherEnabled";
 const char* FOCAL_LENGTH = "focalLength";
+const char* DISABLE_TRACKING_ON_FINISH = "disableTracking";
 const char* PIXEL_SIZE = "pixSize";
 const char* CAPTURE_ON = "Capture ON";
 const char* CAPTURE_OFF = "Capture OFF";
