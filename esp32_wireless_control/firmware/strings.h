@@ -4,7 +4,7 @@
 
 extern const char* TRACKING_ON;
 extern const char* TRACKING_OFF;
-extern const char* TSPEED;
+extern const char* TRACKING_SPEED;
 extern const char* SPEED;
 extern const char* DIRECTION;
 extern const char* SLEWING;

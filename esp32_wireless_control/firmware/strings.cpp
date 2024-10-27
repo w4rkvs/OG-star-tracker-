@@ -4,7 +4,7 @@
 const char* TRACKING_ON = "Tracking ON";
 const char* TRACKING_OFF = "Tracking OFF";
 const char* SPEED = "speed";
-const char* TSPEED = "tspeed";
+const char* TRACKING_SPEED = "trackingSpeed";
 const char* DIRECTION = "direction";
 const char* SLEWING = "Slewing";
 const char* EXPOSURE = "exposure";
@@ -188,16 +188,10 @@ const char* html = "<!DOCTYPE html>\n"
                    "\n"
                    "        function sendStartRequest(url) {\n"
                    "            var direction = document.getElementById('hemisphere-select').value;\n"
-                  "             var tspeed = document.getElementById('tracking-speed-select').value;\n"
-                   "            var starturl = url + '?direction=' + direction + '&tspeed=' + tspeed;\n"
+                  "             var trackingSpeed = document.getElementById('tracking-speed-select').value;\n"
+                   "            var starturl = url + '?direction=' + direction + '&trackingSpeed=' + trackingSpeed;\n"
                    "            sendRequest(starturl);\n"
                    "        }\n"
-                   "\n"
-                  //  "        function sendTrackingRateRequest(url) {\n"
-                  //  "            var tspeed = document.getElementById('tracking-speed-select').value;\n"
-                  //  "            var tspeedurl = url + '?tspeed=' + tspeed;\n"
-                  //  "            sendRequest(tspeedurl);\n"
-                  //  "        }\n"
                    "\n"
                    "        function sendSlewRequest(url) {\n"
                    "            var speed = document.getElementById('slew-select').value;\n"
@@ -259,8 +253,8 @@ const char* html = "<!DOCTYPE html>\n"
                    "                </select><br>\n"
                    "            </div>\n"
                    "            <div class=\"button-group\">\n"
-                   "                <button class=\"right-separator\" type=\"button\" onclick=\"sendSlewRequest('/left')\">&#11164;</button>\n"
-                   "                <button class=\"left-separator\" type=\"button\" onclick=\"sendSlewRequest('/right')\">&#10148;</button>\n"
+                   "                <button class=\"right-separator\" type=\"button\" onclick=\"sendSlewRequest('/left')\">&lt;</button>\n"
+                   "                <button class=\"left-separator\" type=\"button\" onclick=\"sendSlewRequest('/right')\">&gt;</button>\n"
                    "            </div>\n"
                    "        </div>\n"
                    "        <div class=\"card\">\n"

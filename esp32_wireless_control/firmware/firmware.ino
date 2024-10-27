@@ -38,12 +38,10 @@ const int arcsec_per_step = 4;
 
 volatile enum tracking_rate_state tracking_rate = TRACKING_SIDEREAL; //default to sidereal rate
 
-int slew_speed = 0,
-    exposure_count = 0, exposure_duration = 0, dither_enabled = 0, focal_length = 0, pixel_size = 0, steps_per_10pixels = 0, direction = c_DIRECTION;
+int slew_speed = 0, exposure_count = 0, exposure_duration = 0, dither_enabled = 0, focal_length = 0, pixel_size = 0, steps_per_10pixels = 0, direction = c_DIRECTION;
 float arcsec_per_pixel = 0.0;
 unsigned long old_millis = 0, blink_millis = 0;
 uint64_t exposure_delay = 0;
-
 
 //state variables
 bool s_slew_active = false, s_tracking_active = false, s_capturing = false;  //change sidereal state to false if you want tracker to be OFF on power-up
@@ -116,7 +114,7 @@ void handleRoot() {
 }
 
 void handleOn() {
-  int tracking_speed = server.arg(TSPEED).toInt();
+  int tracking_speed = server.arg(TRACKING_SPEED).toInt();
   switch (tracking_speed) {
     case 0:  //sidereal rate
       tracking_rate = TRACKING_SIDEREAL;
@@ -163,7 +161,6 @@ void handleRight() {
   }
   server.send(200, MIME_TYPE_TEXT, SLEWING);
 }
-
 
 void handleStartCapture() {
   if (photo_control_status == INACTIVE) {
