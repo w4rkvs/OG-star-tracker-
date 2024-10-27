@@ -8,7 +8,7 @@
 #include "strings.h"
 
 // try to update every time there is breaking change
-const int firmware_version = 2;
+const int firmware_version = 3;
 
 // Set your Wi-Fi credentials
 const byte DNS_PORT = 53;
@@ -23,14 +23,20 @@ const int dither_intensity = 5;
 //sidereal rate = 0.00416 deg/s
 //for 80Mhz APB (TIMER frequency)
 #ifdef STEPPER_0_9
-const uint64_t c_SIDEREAL_PERIOD = 2666666;
+enum tracking_rate_state { TRACKING_SIDEREAL = 2659383,  //SIDEREAL (23h,56 min)
+                           TRACKING_SOLAR = 2666666,     //SOLAR (24h)
+                           TRACKING_LUNAR = 2723867 };   //LUNAR (24h, 31 min)
 const uint32_t c_SLEW_SPEED = SLEW_SPEED;
 const int arcsec_per_step = 2;
-#else
-const uint64_t c_SIDEREAL_PERIOD = 5333333;
+#else  //stepper 1.8 deg
+enum tracking_rate_state { TRACKING_SIDEREAL = 5318765,  //SIDEREAL (23h,56 min)
+                           TRACKING_SOLAR = 5333333,     //SOLAR (24h)
+                           TRACKING_LUNAR = 5447735 };   //LUNAR (24h, 31 min)
 const uint32_t c_SLEW_SPEED = SLEW_SPEED / 2;
 const int arcsec_per_step = 4;
 #endif
+
+volatile enum tracking_rate_state tracking_rate = TRACKING_SIDEREAL; //default to sidereal rate
 
 int slew_speed = 0, exposure_count = 0, exposure_duration = 0, dither_enabled = 0, focal_length = 0, pixel_size = 0, steps_per_10pixels = 0, direction = c_DIRECTION;
 float arcsec_per_pixel = 0.0;
@@ -38,7 +44,7 @@ unsigned long old_millis = 0, blink_millis = 0;
 uint64_t exposure_delay = 0;
 
 //state variables
-bool s_slew_active = false, s_sidereal_active = false, s_capturing = false;  //change sidereal state to false if you want tracker to be OFF on power-up
+bool s_slew_active = false, s_tracking_active = false, s_capturing = false;  //change sidereal state to false if you want tracker to be OFF on power-up
 enum photo_control_state { ACTIVE,
                            DELAY,
                            DITHER,
@@ -57,11 +63,11 @@ int previous_direction = -1;
 
 WebServer server(80);
 DNSServer dnsServer;
-hw_timer_t* timer_sidereal = NULL;  //for sidereal rate
+hw_timer_t* timer_tracking = NULL;  //for sidereal rate
 hw_timer_t* timer_interval = NULL;  //for intervalometer control
 
-void IRAM_ATTR timer_sidereal_ISR() {
-  //sidereal ISR
+void IRAM_ATTR timer_tracking_ISR() {
+  //tracking ISR
   digitalWrite(AXIS1_STEP, !digitalRead(AXIS1_STEP));  //toggle step pin at required frequency
 }
 
@@ -108,15 +114,31 @@ void handleRoot() {
 }
 
 void handleOn() {
+  int tracking_speed = server.arg(TRACKING_SPEED).toInt();
+  switch (tracking_speed) {
+    case 0:  //sidereal rate
+      tracking_rate = TRACKING_SIDEREAL;
+      break;
+    case 1:  //solar rate
+      tracking_rate = TRACKING_SOLAR;
+      break;
+    case 2:  //lunar rate
+      tracking_rate = TRACKING_LUNAR;
+      break;
+    default:
+      tracking_rate = TRACKING_SIDEREAL;
+      break;
+  }
+  Serial.println(tracking_rate);
   direction = server.arg(DIRECTION).toInt();
-  s_sidereal_active = true;
-  timerAlarmEnable(timer_sidereal);
+  s_tracking_active = true;
+  initTracking();
   server.send(200, MIME_TYPE_TEXT, TRACKING_ON);
 }
 
 void handleOff() {
-  s_sidereal_active = false;
-  timerAlarmDisable(timer_sidereal);
+  s_tracking_active = false;
+  timerAlarmDisable(timer_tracking);
   server.send(200, MIME_TYPE_TEXT, TRACKING_OFF);
 }
 
@@ -196,7 +218,7 @@ void handleStatusRequest() {
     return;
   }
 
-  if (s_sidereal_active) {
+  if (s_tracking_active) {
     server.send(200, MIME_TYPE_TEXT, TRACKING_ON);
     return;
   }
@@ -260,7 +282,7 @@ void setMicrostep(int microstep) {
 }
 
 void initSlew(int dir) {
-  timerAlarmDisable(timer_sidereal);
+  timerAlarmDisable(timer_tracking);
   digitalWrite(AXIS1_DIR, dir);
   setMicrostep(8);
   ledcSetup(0, (c_SLEW_SPEED * slew_speed), 8);
@@ -268,14 +290,14 @@ void initSlew(int dir) {
   ledcWrite(0, 127);  //50% duty pwm
 }
 
-void initSiderealTracking() {
+void initTracking() {
   digitalWrite(AXIS1_DIR, direction);
   setMicrostep(16);
-  timerAlarmWrite(timer_sidereal, c_SIDEREAL_PERIOD, true);
-  if (s_sidereal_active)
-    timerAlarmEnable(timer_sidereal);
+  timerAlarmWrite(timer_tracking, tracking_rate, true);
+  if (s_tracking_active)
+    timerAlarmEnable(timer_tracking);
   else
-    timerAlarmDisable(timer_sidereal);
+    timerAlarmDisable(timer_tracking);
 }
 
 void initIntervalometer() {
@@ -303,7 +325,7 @@ void startCapture() {
 
 void ditherRoutine() {
   int i = 0, j = 0;
-  timerAlarmDisable(timer_sidereal);
+  timerAlarmDisable(timer_tracking);
   int random_direction = biased_random_direction(previous_direction);
   previous_direction = random_direction;
   digitalWrite(AXIS1_DIR, random_direction);  //dither in a random direction
@@ -321,7 +343,7 @@ void ditherRoutine() {
   }
 
   delay(1000);
-  initSiderealTracking();
+  initTracking();
   delay(3000);  //settling time after dither
 }
 
@@ -395,9 +417,9 @@ void setup() {
   digitalWrite(AXIS1_STEP, LOW);
   digitalWrite(EN12_n, LOW);
 
-  timer_sidereal = timerBegin(0, 2, true);
-  timerAttachInterrupt(timer_sidereal, &timer_sidereal_ISR, true);
-  initSiderealTracking();
+  timer_tracking = timerBegin(0, 2, true);
+  timerAttachInterrupt(timer_tracking, &timer_tracking_ISR, true);
+  initTracking();
 }
 
 void loop() {
@@ -409,14 +431,14 @@ void loop() {
     }
   } else {
     //turn on status led if sidereal tracking is ON
-    digitalWrite(STATUS_LED, (s_sidereal_active == true));
+    digitalWrite(STATUS_LED, (s_tracking_active == true));
   }
   if ((s_slew_active == true) && (millis() - old_millis >= 1200)) {
     //slewing will stop if button is not pressed again within 1.2sec
     s_slew_active = false;
     ledcDetachPin(AXIS1_STEP);
     pinMode(AXIS1_STEP, OUTPUT);
-    initSiderealTracking();
+    initTracking();
   }
   if (photo_control_status == DITHER) {
     disableIntervalometer();
@@ -441,7 +463,7 @@ int biased_random_direction(int previous_direction) {
     direction_right_bias = 0.45;  // Lower probability for 1
   }
 
-  float rand_val = random(100) / 100.0; // random number between 0.00 and 0.99
+  float rand_val = random(100) / 100.0;  // random number between 0.00 and 0.99
 
   if (rand_val < direction_left_bias) {
     return 0;
