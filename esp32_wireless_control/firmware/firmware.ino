@@ -147,6 +147,7 @@ void handleOn() {
 void handleOff() {
   s_tracking_active = false;
   timerAlarmDisable(timer_tracking);
+  server.send(200, MIME_TYPE_TEXT, TRACKING_OFF);
 }
 
 void handleLeft() {
