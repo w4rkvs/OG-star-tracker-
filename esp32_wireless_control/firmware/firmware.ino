@@ -228,6 +228,7 @@ void handleAbortCapture() {
 void handleStatusRequest() {
   if (s_slew_active) {
     timerWrite(timer_web_timeout, 0);  //reset timer while slew on, prove still connected to web/app
+    server.send(200, MIME_TYPE_TEXT, SLEWING);
   }
   if (photo_control_status != INACTIVE) {
     char status[60];
