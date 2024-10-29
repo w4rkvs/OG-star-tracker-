@@ -63,7 +63,7 @@ int previous_direction = -1;
 
 WebServer server(80);
 DNSServer dnsServer;
-hw_timer_t* timer_tracking = NULL;     //for sidereal rate
+hw_timer_t* timer_tracking = NULL;     //for tracking and slewing rate
 hw_timer_t* timer_interval = NULL;     //for intervalometer control
 hw_timer_t* timer_web_timeout = NULL;  //for webclient timeout control
 
