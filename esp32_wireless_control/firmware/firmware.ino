@@ -153,6 +153,7 @@ void handleOff() {
 void handleLeft() {
   if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
     slew_speed = server.arg(SPEED).toInt();
+    slew_speed = slew_speed > 400? 400 : slew_speed;
     initSlew(0);
   }
 }
@@ -160,6 +161,7 @@ void handleLeft() {
 void handleRight() {
   if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
     slew_speed = server.arg(SPEED).toInt();
+    slew_speed = slew_speed > 400? 400 : slew_speed;
     initSlew(1);  //reverse direction
   }
 }
