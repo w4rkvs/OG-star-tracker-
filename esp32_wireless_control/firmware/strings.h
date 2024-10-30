@@ -4,6 +4,8 @@
 
 extern const char* TRACKING_ON;
 extern const char* TRACKING_OFF;
+extern const char* IDLE;
+extern const char* TRACKING_SPEED;
 extern const char* SPEED;
 extern const char* DIRECTION;
 extern const char* SLEWING;
@@ -13,6 +15,7 @@ extern const char* EXPOSURE_DELAY;
 extern const char* DITHER_ENABLED;
 extern const char* FOCAL_LENGTH;
 extern const char* PIXEL_SIZE;
+extern const char* DISABLE_TRACKING_ON_FINISH;
 extern const char* CAPTURE_ON;
 extern const char* CAPTURE_OFF;
 extern const char* CAPTURE_ALREADY_ON;

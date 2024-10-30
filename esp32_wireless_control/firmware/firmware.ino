@@ -8,7 +8,7 @@
 #include "strings.h"
 
 // try to update every time there is breaking change
-const int firmware_version = 2;
+const int firmware_version = 5;
 
 // Set your Wi-Fi credentials
 const byte DNS_PORT = 53;
@@ -17,28 +17,35 @@ const char* password = "password123";  //change to your password, must be 8+ cha
 //If you are using AP mode, you can access the website using the below URL
 const String website_name = "www.tracker.com";
 const int dither_intensity = 5;
+#define MIN_CUSTOM_SLEW_RATE 2
 
 //Time b/w two rising edges should be 133.3333 ms
 //66.666x2  ms
 //sidereal rate = 0.00416 deg/s
 //for 80Mhz APB (TIMER frequency)
 #ifdef STEPPER_0_9
-const uint64_t c_SIDEREAL_PERIOD = 2666666;
-const uint32_t c_SLEW_SPEED = SLEW_SPEED;
+enum tracking_rate_state { TRACKING_SIDEREAL = 2659383,  //SIDEREAL (23h,56 min)
+                           TRACKING_SOLAR = 2666666,     //SOLAR (24h)
+                           TRACKING_LUNAR = 2723867 };   //LUNAR (24h, 31 min)
 const int arcsec_per_step = 2;
-#else
-const uint64_t c_SIDEREAL_PERIOD = 5333333;
-const uint32_t c_SLEW_SPEED = SLEW_SPEED / 2;
+#else  //stepper 1.8 deg
+enum tracking_rate_state { TRACKING_SIDEREAL = 5318765,  //SIDEREAL (23h,56 min)
+                           TRACKING_SOLAR = 5333333,     //SOLAR (24h)
+                           TRACKING_LUNAR = 5447735 };   //LUNAR (24h, 31 min)
 const int arcsec_per_step = 4;
 #endif
 
+volatile enum tracking_rate_state tracking_rate = TRACKING_SIDEREAL;  //default to sidereal rate
+
 int slew_speed = 0, exposure_count = 0, exposure_duration = 0, exposure_delay = MIN_EXPOSURE_DELAY, dither_enabled = 0, focal_length = 0, pixel_size = 0, steps_per_10pixels = 0, direction = c_DIRECTION;
 float arcsec_per_pixel = 0.0;
-unsigned long old_millis = 0, blink_millis = 0;
+unsigned long blink_millis = 0;
 uint64_t exposure_delay_timer_time = 0;
 
 //state variables
-bool s_slew_active = false, s_sidereal_active = false, s_capturing = false;  //change sidereal state to false if you want tracker to be OFF on power-up
+bool s_slew_active = false, s_tracking_active = true, s_capturing = false;  //change s_tracking_active state to false if you want tracker to be OFF on power-up
+bool disable_tracking = false;
+int exposures_taken = 0;
 enum photo_control_state { ACTIVE,
                            DELAY,
                            DITHER,
@@ -57,11 +64,16 @@ int previous_direction = -1;
 
 WebServer server(80);
 DNSServer dnsServer;
-hw_timer_t* timer_sidereal = NULL;  //for sidereal rate
-hw_timer_t* timer_interval = NULL;  //for intervalometer control
+hw_timer_t* timer_tracking = NULL;     //for tracking and slewing rate
+hw_timer_t* timer_interval = NULL;     //for intervalometer control
+hw_timer_t* timer_web_timeout = NULL;  //for webclient timeout control
 
-void IRAM_ATTR timer_sidereal_ISR() {
-  //sidereal ISR
+void IRAM_ATTR timer_web_timeout_ISR() {
+  handleSlewOff();
+}
+
+void IRAM_ATTR timer_tracking_ISR() {
+  //tracking ISR
   digitalWrite(AXIS1_STEP, !digitalRead(AXIS1_STEP));  //toggle step pin at required frequency
 }
 
@@ -69,8 +81,7 @@ void IRAM_ATTR timer_interval_ISR() {
   //intervalometer ISR
   switch (photo_control_status) {
     case ACTIVE:
-      exposure_count--;
-      if (exposure_count == 0) {
+      if (exposure_count - 1 == exposures_taken) {
         // no more images to capture, stop
         photo_control_status = INACTIVE;
         disableIntervalometer();
@@ -78,6 +89,11 @@ void IRAM_ATTR timer_interval_ISR() {
         exposure_duration = 0;
         exposure_delay = MIN_EXPOSURE_DELAY;
         s_capturing = false;
+        photo_control_status = INACTIVE;
+
+        if (disable_tracking) {
+          handleOff();
+        }
       } else if (exposure_count % 3 == 0 && dither_enabled) {
         // user has active dithering and this is %3 image, stop capturing and run dither routine
         photo_control_status = DITHER;
@@ -88,6 +104,7 @@ void IRAM_ATTR timer_interval_ISR() {
         timerWrite(timer_interval, exposure_delay_timer_time);
         stopCapture();
         photo_control_status = DELAY;
+        exposures_taken++;
       }
       break;
     case DELAY:
@@ -110,36 +127,59 @@ void handleRoot() {
 }
 
 void handleOn() {
+  int tracking_speed = server.arg(TRACKING_SPEED).toInt();
+  switch (tracking_speed) {
+    case 0:  //sidereal rate
+      tracking_rate = TRACKING_SIDEREAL;
+      break;
+    case 1:  //solar rate
+      tracking_rate = TRACKING_SOLAR;
+      break;
+    case 2:  //lunar rate
+      tracking_rate = TRACKING_LUNAR;
+      break;
+    default:
+      tracking_rate = TRACKING_SIDEREAL;
+      break;
+  }
   direction = server.arg(DIRECTION).toInt();
-  s_sidereal_active = true;
-  timerAlarmEnable(timer_sidereal);
-  server.send(200, MIME_TYPE_TEXT, TRACKING_ON);
+  s_tracking_active = true;
+  initTracking();
 }
 
 void handleOff() {
-  s_sidereal_active = false;
-  timerAlarmDisable(timer_sidereal);
+  s_tracking_active = false;
+  timerAlarmDisable(timer_tracking);
   server.send(200, MIME_TYPE_TEXT, TRACKING_OFF);
 }
 
 void handleLeft() {
-  slew_speed = server.arg(SPEED).toInt();
-  if (s_slew_active == false) {
+  if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
+    slew_speed = server.arg(SPEED).toInt();
+    //limit custom slew speed to 2-400
+    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE : slew_speed;
     initSlew(0);
-    s_slew_active = true;
   }
-  old_millis = millis();
-  server.send(200, MIME_TYPE_TEXT, SLEWING);
 }
 
 void handleRight() {
-  slew_speed = server.arg(SPEED).toInt();
-  old_millis = millis();
-  if (s_slew_active == false) {
+  if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
+    slew_speed = server.arg(SPEED).toInt();
+    //limit custom slew speed to 2-400
+    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE : slew_speed;
     initSlew(1);  //reverse direction
-    s_slew_active = true;
   }
-  server.send(200, MIME_TYPE_TEXT, SLEWING);
+}
+
+void handleSlewOff() {
+  if (s_slew_active) {  //if slew is active needed for ipad (passes multiple touchoff events)
+    s_slew_active = false;
+    timerAlarmDisable(timer_web_timeout);
+    timerDetachInterrupt(timer_web_timeout);
+    timerEnd(timer_web_timeout);
+    timerAlarmDisable(timer_tracking);
+    initTracking();
+  }
 }
 
 void handleStartCapture() {
@@ -150,6 +190,9 @@ void handleStartCapture() {
     dither_enabled = server.arg(DITHER_ENABLED).toInt();
     focal_length = server.arg(FOCAL_LENGTH).toInt();
     pixel_size = server.arg(PIXEL_SIZE).toInt();
+    disable_tracking = server.arg(DISABLE_TRACKING_ON_FINISH).toInt();
+
+    exposures_taken = 0;
 
     if ((exposure_duration == 0 || exposure_count == 0 || exposure_delay < MIN_EXPOSURE_DELAY || exposure_delay > exposure_duration)) {
       server.send(200, MIME_TYPE_TEXT, INVALID_EXPOSURE_VALUES);
@@ -196,14 +239,23 @@ void handleAbortCapture() {
 }
 
 void handleStatusRequest() {
+  if (s_slew_active) {
+    timerWrite(timer_web_timeout, 0);  //reset timer while slew on, prove still connected to web/app
+    server.send(200, MIME_TYPE_TEXT, SLEWING);
+  }
   if (photo_control_status != INACTIVE) {
     char status[60];
-    sprintf(status, CAPTURES_REMAINING, exposure_count);
+    sprintf(status, CAPTURES_REMAINING, exposure_count - exposures_taken);
     server.send(200, MIME_TYPE_TEXT, status);
     return;
   }
 
-  if (s_sidereal_active) {
+  if (!s_tracking_active && photo_control_status == INACTIVE) {
+    server.send(200, MIME_TYPE_TEXT, IDLE);
+    return;
+  }
+
+  if (s_tracking_active) {
     server.send(200, MIME_TYPE_TEXT, TRACKING_ON);
     return;
   }
@@ -245,6 +297,7 @@ void updateEEPROM(int dither, int focal_len, int pix_size) {
   }
   EEPROM.commit();
 }
+
 void setMicrostep(int microstep) {
   switch (microstep) {
     case 8:
@@ -267,22 +320,30 @@ void setMicrostep(int microstep) {
 }
 
 void initSlew(int dir) {
-  timerAlarmDisable(timer_sidereal);
-  digitalWrite(AXIS1_DIR, dir);
+  s_slew_active = true;
+  timer_web_timeout = timerBegin(2, 40000, true);
+  timerAttachInterrupt(timer_web_timeout, &timer_web_timeout_ISR, true);
+  timerAlarmWrite(timer_web_timeout, 12000, true);  //12000 = 6 secs timeout, send status 5 sec poll (reset on poll)
+  timerAlarmEnable(timer_web_timeout);
+  server.send(200, MIME_TYPE_TEXT, SLEWING);
+  digitalWrite(AXIS1_DIR, dir);  //set slew direction
+  timerAlarmDisable(timer_tracking);
   setMicrostep(8);
-  ledcSetup(0, (c_SLEW_SPEED * slew_speed), 8);
-  ledcAttachPin(AXIS1_STEP, 0);
-  ledcWrite(0, 127);  //50% duty pwm
+  timerAlarmWrite(timer_tracking, (2 * tracking_rate) / slew_speed, true);  //2*tracking rate (16 mstep vs 8) / slew_speed = multiple of tracking rate
+  timerAlarmEnable(timer_tracking);
 }
 
-void initSiderealTracking() {
+void initTracking() {
   digitalWrite(AXIS1_DIR, direction);
   setMicrostep(16);
-  timerAlarmWrite(timer_sidereal, c_SIDEREAL_PERIOD, true);
-  if (s_sidereal_active)
-    timerAlarmEnable(timer_sidereal);
-  else
-    timerAlarmDisable(timer_sidereal);
+  timerAlarmWrite(timer_tracking, tracking_rate, true);
+  if (s_tracking_active) {
+    timerAlarmEnable(timer_tracking);
+    server.send(200, MIME_TYPE_TEXT, TRACKING_ON);
+  } else {
+    timerAlarmDisable(timer_tracking);
+    server.send(200, MIME_TYPE_TEXT, TRACKING_OFF);
+  }
 }
 
 void initIntervalometer() {
@@ -310,7 +371,7 @@ void startCapture() {
 
 void ditherRoutine() {
   int i = 0, j = 0;
-  timerAlarmDisable(timer_sidereal);
+  timerAlarmDisable(timer_tracking);
   int random_direction = biased_random_direction(previous_direction);
   previous_direction = random_direction;
   digitalWrite(AXIS1_DIR, random_direction);  //dither in a random direction
@@ -328,7 +389,7 @@ void ditherRoutine() {
   }
 
   delay(1000);
-  initSiderealTracking();
+  initTracking();
   delay(3000);  //settling time after dither
 }
 
@@ -379,6 +440,7 @@ void setup() {
   server.on("/off", HTTP_GET, handleOff);
   server.on("/left", HTTP_GET, handleLeft);
   server.on("/right", HTTP_GET, handleRight);
+  server.on("/stopslew", HTTP_GET, handleSlewOff);
   server.on("/start", HTTP_GET, handleStartCapture);
   server.on("/abort", HTTP_GET, handleAbortCapture);
   server.on("/status", HTTP_GET, handleStatusRequest);
@@ -402,9 +464,9 @@ void setup() {
   digitalWrite(AXIS1_STEP, LOW);
   digitalWrite(EN12_n, LOW);
 
-  timer_sidereal = timerBegin(0, 2, true);
-  timerAttachInterrupt(timer_sidereal, &timer_sidereal_ISR, true);
-  initSiderealTracking();
+  timer_tracking = timerBegin(0, 2, true);
+  timerAttachInterrupt(timer_tracking, &timer_tracking_ISR, true);
+  initTracking();
 }
 
 void loop() {
@@ -416,15 +478,9 @@ void loop() {
     }
   } else {
     //turn on status led if sidereal tracking is ON
-    digitalWrite(STATUS_LED, (s_sidereal_active == true));
+    digitalWrite(STATUS_LED, (s_tracking_active == true));
   }
-  if ((s_slew_active == true) && (millis() - old_millis >= 1200)) {
-    //slewing will stop if button is not pressed again within 1.2sec
-    s_slew_active = false;
-    ledcDetachPin(AXIS1_STEP);
-    pinMode(AXIS1_STEP, OUTPUT);
-    initSiderealTracking();
-  }
+
   if (photo_control_status == DITHER) {
     disableIntervalometer();
     ditherRoutine();
@@ -452,7 +508,7 @@ int biased_random_direction(int previous_direction) {
     direction_right_bias = 0.45;  // Lower probability for 1
   }
 
-  float rand_val = random(100) / 100.0; // random number between 0.00 and 0.99
+  float rand_val = random(100) / 100.0;  // random number between 0.00 and 0.99
 
   if (rand_val < direction_left_bias) {
     return 0;

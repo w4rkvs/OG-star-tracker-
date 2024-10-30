@@ -5,11 +5,14 @@
 //AP mode by default: ESP32 will create a wifi network which you can connect to
 #define AP              //comment this line if you want ESP32 to connect to your existing wifi network/hotspot
 #define c_DIRECTION 1   //1 is for north hemisphere and 0 for south hemisphere
+#define MAX_CUSTOM_SLEW_RATE 400
 #define STEPPER_0_9     //uncomment this line if you have a 0.9 degree NEMA17
 //#define STEPPER_1_8   //uncomment this line if you have a 1.8 degree NEMA17, and comment the above line
 const uint32_t SLEW_SPEED = 200;    //tweak this value if you want to increase/decrease the max slew speed, change in steps of 100
 const uint32_t MIN_EXPOSURE_DELAY = 3; //the minimum time in seconds the user can set the delay
 /**********************/
+
+
 
 /*****DO NOT MODIFY BELOW*****/
 //LEDs for intervalometer status and general purpose status led
@@ -18,7 +21,7 @@ const uint32_t MIN_EXPOSURE_DELAY = 3; //the minimum time in seconds the user ca
 
 //Stepper driver pins -- intended for TMC2209 for now
 //AXIS 1 - RA
-#define AXIS1_STEP     5
+#define AXIS1_STEP     5 
 #define AXIS1_DIR     15
 #define SPREAD_1       4
 //AXIS 2 - DEC
