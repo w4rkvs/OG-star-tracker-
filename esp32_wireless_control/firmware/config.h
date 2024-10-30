@@ -8,6 +8,7 @@
 #define STEPPER_0_9     //uncomment this line if you have a 0.9 degree NEMA17
 //#define STEPPER_1_8   //uncomment this line if you have a 1.8 degree NEMA17, and comment the above line
 const uint32_t SLEW_SPEED = 200;    //tweak this value if you want to increase/decrease the max slew speed, change in steps of 100
+const uint32_t MIN_EXPOSURE_DELAY = 3; //the minimum time in seconds the user can set the delay
 /**********************/
 
 /*****DO NOT MODIFY BELOW*****/

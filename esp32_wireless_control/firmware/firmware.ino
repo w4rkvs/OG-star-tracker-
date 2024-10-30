@@ -32,10 +32,10 @@ const uint32_t c_SLEW_SPEED = SLEW_SPEED / 2;
 const int arcsec_per_step = 4;
 #endif
 
-int slew_speed = 0, exposure_count = 0, exposure_duration = 0, dither_enabled = 0, focal_length = 0, pixel_size = 0, steps_per_10pixels = 0, direction = c_DIRECTION;
+int slew_speed = 0, exposure_count = 0, exposure_duration = 0, exposure_delay = MIN_EXPOSURE_DELAY, dither_enabled = 0, focal_length = 0, pixel_size = 0, steps_per_10pixels = 0, direction = c_DIRECTION;
 float arcsec_per_pixel = 0.0;
 unsigned long old_millis = 0, blink_millis = 0;
-uint64_t exposure_delay = 0;
+uint64_t exposure_delay_timer_time = 0;
 
 //state variables
 bool s_slew_active = false, s_sidereal_active = false, s_capturing = false;  //change sidereal state to false if you want tracker to be OFF on power-up
@@ -69,11 +69,14 @@ void IRAM_ATTR timer_interval_ISR() {
   //intervalometer ISR
   switch (photo_control_status) {
     case ACTIVE:
+      exposure_count--;
       if (exposure_count == 0) {
         // no more images to capture, stop
+        photo_control_status = INACTIVE;
         disableIntervalometer();
         exposure_count = 0;
         exposure_duration = 0;
+        exposure_delay = MIN_EXPOSURE_DELAY;
         s_capturing = false;
       } else if (exposure_count % 3 == 0 && dither_enabled) {
         // user has active dithering and this is %3 image, stop capturing and run dither routine
@@ -82,11 +85,10 @@ void IRAM_ATTR timer_interval_ISR() {
         timerStop(timer_interval);  //pause the timer, wait for dither to finish in main loop
       } else {
         // run normally
-        timerWrite(timer_interval, exposure_delay);
+        timerWrite(timer_interval, exposure_delay_timer_time);
         stopCapture();
         photo_control_status = DELAY;
       }
-      exposure_count--;
       break;
     case DELAY:
       timerWrite(timer_interval, 0);
@@ -103,7 +105,7 @@ void handleRoot() {
   formattedHtmlPage.replace("%south%", (!direction ? "selected" : ""));
   formattedHtmlPage.replace("%dither%", (dither_enabled ? "checked" : ""));
   formattedHtmlPage.replace("%focallen%", String(focal_length).c_str());
-  formattedHtmlPage.replace("%pixsize%", String((float)pixel_size / 100, 2).c_str());
+  formattedHtmlPage.replace("%pixsize%", String((float) ((int) pixel_size) / 100, 2).c_str());
   server.send(200, MIME_TYPE_HTML, formattedHtmlPage);
 }
 
@@ -144,12 +146,17 @@ void handleStartCapture() {
   if (photo_control_status == INACTIVE) {
     exposure_duration = server.arg(EXPOSURE).toInt();
     exposure_count = server.arg(NUM_EXPOSURES).toInt();
+    exposure_delay = server.arg(EXPOSURE_DELAY).toInt();
     dither_enabled = server.arg(DITHER_ENABLED).toInt();
     focal_length = server.arg(FOCAL_LENGTH).toInt();
     pixel_size = server.arg(PIXEL_SIZE).toInt();
 
-    if ((exposure_duration == 0 || exposure_count == 0)) {
+    if ((exposure_duration == 0 || exposure_count == 0 || exposure_delay < MIN_EXPOSURE_DELAY || exposure_delay > exposure_duration)) {
       server.send(200, MIME_TYPE_TEXT, INVALID_EXPOSURE_VALUES);
+      Serial.println(exposure_duration);
+      Serial.println(exposure_count);
+      Serial.println(exposure_delay);
+      Serial.println(MIN_EXPOSURE_DELAY);
       return;
     }
 
@@ -166,7 +173,7 @@ void handleStartCapture() {
 
     s_capturing = true;
     photo_control_status = ACTIVE;
-    exposure_delay = ((exposure_duration - 3) * 2000);  // 3 sec delay
+    exposure_delay_timer_time = ((exposure_duration - exposure_delay) * 2000);  // <exposure_delay> sec delay
     initIntervalometer();
     server.send(200, MIME_TYPE_TEXT, CAPTURE_ON);
   } else {
@@ -421,8 +428,12 @@ void loop() {
   if (photo_control_status == DITHER) {
     disableIntervalometer();
     ditherRoutine();
-    photo_control_status = ACTIVE;
-    initIntervalometer();
+    photo_control_status = DELAY;
+    timer_interval = timerBegin(1, 40000, true);
+    timerAttachInterrupt(timer_interval, &timer_interval_ISR, true);
+    timerAlarmWrite(timer_interval, (exposure_duration * 2000), true);  //2000 because prescaler cant be more than 16bit, = 1sec ISR freq
+    timerAlarmEnable(timer_interval);
+    timerWrite(timer_interval, exposure_delay_timer_time);
   }
   server.handleClient();
   dnsServer.processNextRequest();

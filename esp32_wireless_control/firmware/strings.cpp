@@ -8,6 +8,7 @@ const char* DIRECTION = "direction";
 const char* SLEWING = "Slewing";
 const char* EXPOSURE = "exposure";
 const char* NUM_EXPOSURES = "numExposures";
+const char* EXPOSURE_DELAY = "exposureDelay";
 const char* DITHER_ENABLED = "ditherEnabled";
 const char* FOCAL_LENGTH = "focalLength";
 const char* PIXEL_SIZE = "pixSize";
@@ -200,11 +201,12 @@ const char* html = "<!DOCTYPE html>\n"
                    "        function sendCaptureRequest() {\n"
                    "            var exposure = document.getElementById('exposure').value.trim();\n"
                    "            var numExposures = document.getElementById('num-exposures').value.trim();\n"
+                   "            var exposureDelay = document.getElementById('exposure-delay').value.trim();\n"
                    "            var focalLength = document.getElementById('focal_len').value.trim();\n"
                    "            var pixSize = Math.floor(parseFloat(document.getElementById('pixel_size').value.trim()) * 100);\n"
                    "\n"
                    "            var ditherEnabled = document.getElementById('dither_on').checked ? 1 : 0;\n"
-                   "            var intervalometerUrl = '/start?exposure=' + exposure + '&numExposures=' + numExposures + '&focalLength=' + focalLength + '&pixSize=' + pixSize + '&ditherEnabled=' + ditherEnabled;\n"
+                   "            var intervalometerUrl = '/start?exposure=' + exposure + '&numExposures=' + numExposures + '&exposureDelay=' + exposureDelay + '&focalLength=' + focalLength + '&pixSize=' + pixSize + '&ditherEnabled=' + ditherEnabled;\n"
                    "            sendRequest(intervalometerUrl);\n"
                    "        }\n"
                    "    </script>\n"
@@ -256,6 +258,10 @@ const char* html = "<!DOCTYPE html>\n"
                    "            <div class=\"grid2\">\n"
                    "                <h3>Number exposures:</h3>\n"
                    "                <input type='number' id='num-exposures' placeholder='nº of photos (Ex. 20)'>\n"
+                   "            </div>\n"
+                   "            <div class=\"grid2\">\n"
+                   "                <h3>Exposure delay:</h3>\n"
+                   "                <input type='number' id='exposure-delay' placeholder='in seconds greater than 3'>\n"
                    "            </div>\n"
                    "            <details>\n"
                    "                <summary>Dither Settings</summary>\n"

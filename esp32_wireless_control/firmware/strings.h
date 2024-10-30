@@ -9,6 +9,7 @@ extern const char* DIRECTION;
 extern const char* SLEWING;
 extern const char* EXPOSURE;
 extern const char* NUM_EXPOSURES;
+extern const char* EXPOSURE_DELAY;
 extern const char* DITHER_ENABLED;
 extern const char* FOCAL_LENGTH;
 extern const char* PIXEL_SIZE;
