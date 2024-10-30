@@ -17,6 +17,7 @@ const char* password = "password123";  //change to your password, must be 8+ cha
 //If you are using AP mode, you can access the website using the below URL
 const String website_name = "www.tracker.com";
 const int dither_intensity = 5;
+#define MIN_CUSTOM_SLEW_RATE 2
 
 //Time b/w two rising edges should be 133.3333 ms
 //66.666x2  ms
@@ -153,7 +154,8 @@ void handleOff() {
 void handleLeft() {
   if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
     slew_speed = server.arg(SPEED).toInt();
-    slew_speed = slew_speed > 400? 400 : slew_speed;
+    //limit custom slew speed to 2-400
+    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE : slew_speed;
     initSlew(0);
   }
 }
@@ -161,7 +163,8 @@ void handleLeft() {
 void handleRight() {
   if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
     slew_speed = server.arg(SPEED).toInt();
-    slew_speed = slew_speed > 400? 400 : slew_speed;
+    //limit custom slew speed to 2-400
+    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE : slew_speed;
     initSlew(1);  //reverse direction
   }
 }
