@@ -311,7 +311,7 @@ void initSlew(int dir) {
   s_slew_active = true;
   timer_web_timeout = timerBegin(2, 40000, true);
   timerAttachInterrupt(timer_web_timeout, &timer_web_timeout_ISR, true);
-  timerAlarmWrite(timer_web_timeout, 24000, true);  //24000 = 12 secs timeout, send status 10 sec poll (reset on poll)
+  timerAlarmWrite(timer_web_timeout, 12000, true);  //12000 = 6 secs timeout, send status 5 sec poll (reset on poll)
   timerAlarmEnable(timer_web_timeout);
   server.send(200, MIME_TYPE_TEXT, SLEWING);
   digitalWrite(AXIS1_DIR, dir);  //set slew direction
