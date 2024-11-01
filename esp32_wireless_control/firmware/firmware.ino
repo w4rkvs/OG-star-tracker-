@@ -81,7 +81,8 @@ void IRAM_ATTR timer_interval_ISR() {
   //intervalometer ISR
   switch (photo_control_status) {
     case ACTIVE:
-      if (exposure_count - 1 == exposures_taken) {
+      exposures_taken++;
+      if (exposure_count == exposures_taken) {
         // no more images to capture, stop
         disableIntervalometer();
         exposure_count = 0;
@@ -92,7 +93,7 @@ void IRAM_ATTR timer_interval_ISR() {
         if (disable_tracking) {
           handleOff();
         }
-      } else if (exposure_count % 3 == 0 && dither_enabled) {
+      } else if (exposures_taken % 3 == 0 && dither_enabled) {
         // user has active dithering and this is %3 image, stop capturing and run dither routine
         photo_control_status = DITHER;
         stopCapture();
@@ -102,7 +103,6 @@ void IRAM_ATTR timer_interval_ISR() {
         timerWrite(timer_interval, exposure_delay);
         stopCapture();
         photo_control_status = DELAY;
-        exposures_taken++;
       }
       break;
     case DELAY:
