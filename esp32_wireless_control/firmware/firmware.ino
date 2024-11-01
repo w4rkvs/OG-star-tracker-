@@ -8,7 +8,7 @@
 #include "strings.h"
 
 // try to update every time there is breaking change
-const int firmware_version = 5;
+const int firmware_version = 6;
 
 // Set your Wi-Fi credentials
 const byte DNS_PORT = 53;
@@ -78,10 +78,14 @@ void IRAM_ATTR timer_tracking_ISR() {
 }
 
 void IRAM_ATTR timer_interval_ISR() {
+  Serial.println("----");
   //intervalometer ISR
   switch (photo_control_status) {
     case ACTIVE:
-      if (exposure_count - 1 == exposures_taken) {
+      exposures_taken++;
+      Serial.println("exposures_taken = " + String(exposures_taken) + "/" + String(exposure_count));
+      if (exposure_count == exposures_taken) {
+        Serial.println("State: Stopping intervalometer");
         // no more images to capture, stop
         photo_control_status = INACTIVE;
         disableIntervalometer();
@@ -92,22 +96,25 @@ void IRAM_ATTR timer_interval_ISR() {
         photo_control_status = INACTIVE;
 
         if (disable_tracking) {
-          handleOff();
+          s_tracking_active = false;
+          timerAlarmDisable(timer_tracking);
         }
-      } else if (exposure_count % 3 == 0 && dither_enabled) {
+      } else if (exposures_taken % 3 == 0 && dither_enabled) {
+        Serial.println("State: Dithering");
         // user has active dithering and this is %3 image, stop capturing and run dither routine
         photo_control_status = DITHER;
         stopCapture();
         timerStop(timer_interval);  //pause the timer, wait for dither to finish in main loop
       } else {
+        Serial.println("State: Wait for next shot");
         // run normally
         timerWrite(timer_interval, exposure_delay_timer_time);
         stopCapture();
         photo_control_status = DELAY;
-        exposures_taken++;
       }
       break;
     case DELAY:
+      Serial.println("State: Taking shot");
       timerWrite(timer_interval, 0);
       startCapture();
       photo_control_status = ACTIVE;
@@ -157,7 +164,8 @@ void handleLeft() {
   if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
     slew_speed = server.arg(SPEED).toInt();
     //limit custom slew speed to 2-400
-    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE : slew_speed;
+    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE
+                                                                                                              : slew_speed;
     initSlew(0);
   }
 }
@@ -166,7 +174,8 @@ void handleRight() {
   if (!s_slew_active) {  //if slew is not active - needed for ipad (passes multiple touchon events)
     slew_speed = server.arg(SPEED).toInt();
     //limit custom slew speed to 2-400
-    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE : slew_speed;
+    slew_speed = slew_speed > MAX_CUSTOM_SLEW_RATE ? MAX_CUSTOM_SLEW_RATE : slew_speed < MIN_CUSTOM_SLEW_RATE ? MIN_CUSTOM_SLEW_RATE
+                                                                                                              : slew_speed;
     initSlew(1);  //reverse direction
   }
 }
@@ -376,8 +385,6 @@ void ditherRoutine() {
   previous_direction = random_direction;
   digitalWrite(AXIS1_DIR, random_direction);  //dither in a random direction
   delay(500);
-  Serial.println("Dither rndm direction:");
-  Serial.println(random_direction);
 
   for (i = 0; i < dither_intensity; i++) {
     for (j = 0; j < steps_per_10pixels; j++) {
